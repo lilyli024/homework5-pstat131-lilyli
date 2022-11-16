@@ -81,3 +81,15 @@ autoplot(tune_res)
 ```
 
 Larger values of penalty and mixture produce better accuracy and ROC AUC.
+
+### Q7
+```{r}
+best_penalty <- select_best(tune_res, metric = "roc_auc")
+finalwkf <- finalize_workflow(workflow, best_penalty)
+final_fit <- fit(finalwkf, data = train) # fit model to training dataset
+
+# performance on the testing dataset
+augment(final_fit, new_data = test) %>%
+  roc_auc(truth = type_1, .pred_Bug, .pred_Fire, .pred_Grass, .pred_Normal, .pred_Psychic, .pred_Water)
+```
+
