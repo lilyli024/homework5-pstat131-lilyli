@@ -1,0 +1,83 @@
+---
+title: 'PSTAT 131: Homework 5'
+author: "Lily Li"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message=FALSE}
+library(janitor)
+library(tidymodels)
+library(tidyverse)
+library(readr)
+pokemon <- read_csv("Pokemon.csv") %>% clean_names()
+```
+### Q1
+
+clean_names() ensures consistent format and that the names only contain letters, numbers, and underscores. Numbers are appended on duplicate names.
+
+### Q2
+```{r}
+ggplot(pokemon, aes(y = reorder(factor(type_1), type_1, function(x) length(x)))) +
+  geom_bar(fill = "purple") +
+  labs(y = "type 1") +
+  geom_text(stat = 'count', aes(label = ..count..),position = position_stack(vjust = 0.8))
+
+pokemon %>% count(type_1) # 18 classes
+
+pokemon_clean <- pokemon %>% filter(type_1 %in% c('Bug', 'Fire', 'Grass', 'Normal', 'Water', 'Psychic')) %>%
+  mutate(type_1 = factor(type_1), legendary = factor(legendary))
+```
+
+Pokemon types with the fewest pokemon in our dataset: FLying(n=4), Fairy(n=17), Ice(n=24).
+
+### Q3
+```{r}
+set.seed(9)
+pokemon_split <- initial_split(pokemon_clean, prop = 0.7, strata = type_1)
+train <- training(pokemon_split)
+test <- testing(pokemon_split)
+dim(train) # 318/458 of observations
+dim(test) # 140/458 of observations
+
+set.seed(9)
+pokemon_folds <- vfold_cv(train, v = 5, strata = type_1)
+```
+
+Stratifying the folds is important since resampling is done seperately for each class; this ensures we have equivalent portions of each type_1 pokemon in each fold and each type_1 class is represented.
+
+### Q4
+```{r}
+pokemon_recipe <- recipe(type_1 ~ legendary + generation + sp_atk + attack + speed + defense + hp + sp_def, data = pokemon_clean) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_normalize(all_predictors())
+```
+
+### Q5
+```{r, message=FALSE}
+elastic_net_spec <- multinom_reg(penalty = tune(), mixture=0.5) %>% 
+  set_mode("classification") %>% 
+  set_engine("glmnet") 
+
+workflow <- workflow() %>% 
+  add_recipe(pokemon_recipe) %>% 
+  add_model(elastic_net_spec)
+
+penalty_grid <- grid_regular(penalty(range = c(-5, 5)), levels = 10)
+
+tune_res <- tune_grid(workflow,
+  resamples = pokemon_folds, 
+  grid = penalty_grid)
+```
+
+5 total models fitted to folds
+
+### Q6
+```{r}
+autoplot(tune_res)
+```
+
+Larger values of penalty and mixture produce better accuracy and ROC AUC.
