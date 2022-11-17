@@ -7,7 +7,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-
+### Q1 Use clean_names()
 ```{r, message=FALSE}
 library(janitor)
 library(tidymodels)
@@ -15,11 +15,10 @@ library(tidyverse)
 library(readr)
 pokemon <- read_csv("Pokemon.csv") %>% clean_names()
 ```
-### Q1
 
 clean_names() ensures consistent format and that the names only contain letters, numbers, and underscores. Numbers are appended on duplicate names.
 
-### Q2
+### Q2 Filter out rarer classes of Pokemon
 ```{r}
 ggplot(pokemon, aes(y = reorder(factor(type_1), type_1, function(x) length(x)))) +
   geom_bar(fill = "purple") +
@@ -34,7 +33,7 @@ pokemon_clean <- pokemon %>% filter(type_1 %in% c('Bug', 'Fire', 'Grass', 'Norma
 
 Pokemon types with the fewest pokemon in our dataset: FLying(n=4), Fairy(n=17), Ice(n=24).
 
-### Q3
+### Q3 Partition and k-fold cross validation
 ```{r}
 set.seed(9)
 pokemon_split <- initial_split(pokemon_clean, prop = 0.7, strata = type_1)
@@ -49,47 +48,65 @@ pokemon_folds <- vfold_cv(train, v = 5, strata = type_1)
 
 Stratifying the folds is important since resampling is done seperately for each class; this ensures we have equivalent portions of each type_1 pokemon in each fold and each type_1 class is represented.
 
-### Q4
+### Q4 Set up a recpie
 ```{r}
 pokemon_recipe <- recipe(type_1 ~ legendary + generation + sp_atk + attack + speed + defense + hp + sp_def, data = pokemon_clean) %>%
   step_dummy(all_nominal_predictors()) %>%
-  step_normalize(all_predictors())
+  step_normalize(all_predictors()) # Center and scale all predictors
 ```
 
-### Q5
+### Q5 tune_grid() function to perform hyperparameter tuning
 ```{r, message=FALSE}
 elastic_net_spec <- multinom_reg(penalty = tune(), mixture=0.5) %>% 
   set_mode("classification") %>% 
   set_engine("glmnet") 
 
+# workflow object containing the model and preprocessor
 workflow <- workflow() %>% 
   add_recipe(pokemon_recipe) %>% 
   add_model(elastic_net_spec)
 
+# tibble containing the parameter values to be evaluated
 penalty_grid <- grid_regular(penalty(range = c(-5, 5)), levels = 10)
-
-tune_res <- tune_grid(workflow,
-  resamples = pokemon_folds, 
-  grid = penalty_grid)
 ```
 
 5 total models fitted to folds
 
-### Q6
+### Q6 Fit the models to your folded data 
 ```{r}
+tune_res <- tune_grid(workflow,
+  resamples = pokemon_folds, 
+  grid = penalty_grid)
+
 autoplot(tune_res)
 ```
 
-Larger values of penalty and mixture produce better accuracy and ROC AUC.
+Larger values of penalty and mixture produce higher accuracy and ROC AUC.
 
 ### Q7
 ```{r}
 best_penalty <- select_best(tune_res, metric = "roc_auc")
-finalwkf <- finalize_workflow(workflow, best_penalty)
+finalwkf <- finalize_workflow(workflow, best_penalty) # update the recipe by replacing tune() with the value of best_penalty
 final_fit <- fit(finalwkf, data = train) # fit model to training dataset
 
 # performance on the testing dataset
-augment(final_fit, new_data = test) %>%
-  roc_auc(truth = type_1, .pred_Bug, .pred_Fire, .pred_Grass, .pred_Normal, .pred_Psychic, .pred_Water)
+predict(final_fit, new_data = test, type = "class") %>%
+  bind_cols(test %>% dplyr::select(type_1)) %>%
+  yardstick::accuracy(truth = type_1, estimate = .pred_class)
 ```
+### Q8
+```{r}
+results <- augment(final_fit, new_data = test) 
 
+# overall ROC AUC on the testing set
+results %>% roc_auc(truth = type_1, .pred_Bug:.pred_Water)
+
+# plots of the different ROC curves, one per level of the outcome
+results %>% roc_curve(truth = type_1, .pred_Bug:.pred_Water) %>% 
+  autoplot()
+
+# heat map of the confusion matrix
+results %>% conf_mat(truth = type_1, estimate = .pred_class) %>% 
+  autoplot(type = "heatmap")
+```
+The ROC AUC means that the model has an acceptable somewhat strong ability to differentiate between pokemon classes. Through the model ranks between patterns well, it could posiblt be that the thresholds used for assigning classes resulted in poor overall accuracy that is less than 0.5 or that the attributes from our data are not ideal for predicting classes of pokemon. The ROC AUC for each class tell us that the model is best at predicting Psychic and Fire Pokemon. The model is worst at predicting water and grass pokemon.
