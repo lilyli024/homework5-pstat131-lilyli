@@ -83,7 +83,7 @@ autoplot(tune_res)
 
 Larger values of penalty and mixture produce higher accuracy and ROC AUC.
 
-### Q7
+### Q7 Select penalty based on best ROC AUC
 ```{r}
 best_penalty <- select_best(tune_res, metric = "roc_auc")
 finalwkf <- finalize_workflow(workflow, best_penalty) # update the recipe by replacing tune() with the value of best_penalty
@@ -94,7 +94,7 @@ predict(final_fit, new_data = test, type = "class") %>%
   bind_cols(test %>% dplyr::select(type_1)) %>%
   yardstick::accuracy(truth = type_1, estimate = .pred_class)
 ```
-### Q8
+### Q8 Interpreting ROC
 ```{r}
 results <- augment(final_fit, new_data = test) 
 
